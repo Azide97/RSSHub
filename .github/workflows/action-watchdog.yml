@@ -22,7 +22,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Put the exact names of YOUR custom workflows here, separated by the pipe | symbol
-          MY_WORKFLOWS: "ActionWatchdog|MyCustomWorkflow1|MyCustomWorkflow2"
+          MY_WORKFLOWS: "ActionWatchdog|Build and Push Docker Image"
           MY_GOTIFY_SERVER_DOMAIN: ${{ secrets.MY_GOTIFY_SERVER_DOMAIN }} # Optional: For additional notifications via Gotify
           MY_GOTIFY_TOKEN: ${{ secrets.MY_GOTIFY_TOKEN }} # Optional: For additional notifications via Gotify
         run: |
