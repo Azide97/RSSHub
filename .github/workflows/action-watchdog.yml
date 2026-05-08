@@ -1,0 +1,57 @@
+name: ActionWatchdog
+
+on:
+  schedule:
+    - cron: "0 */6 * * *" # Runs every 6 hours
+  push:
+    branches:
+      - master
+  workflow_dispatch: # Allows you to trigger it manually before/after you sync
+
+permissions:
+  actions: write # Required to disable workflows
+
+jobs:
+  monitor-and-disable:
+    runs-on: ubuntu-slim
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@main
+
+      - name: Find and Disable Unauthorized Workflows
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Put the exact names of YOUR custom workflows here, separated by the pipe | symbol
+          MY_WORKFLOWS: "ActionWatchdog|MyCustomWorkflow1|MyCustomWorkflow2"
+          MY_GOTIFY_SERVER_DOMAIN: ${{ secrets.MY_GOTIFY_SERVER_DOMAIN }} # Optional: For additional notifications via Gotify
+          MY_GOTIFY_TOKEN: ${{ secrets.MY_GOTIFY_TOKEN }} # Optional: For additional notifications via Gotify
+        run: |
+          # 1. Get all workflows that are currently "active"
+          ACTIVE_WORKFLOWS=$(gh api repos/${{ github.repository }}/actions/workflows -q '.workflows[] | select(.state == "active") | .name')
+
+          # 2. Loop through active workflows
+          echo "$ACTIVE_WORKFLOWS" | while IFS= read -r WORKFLOW_NAME; do
+            
+            # Skip empty lines
+            if [ -z "$WORKFLOW_NAME" ]; then continue; fi
+            
+            # 3. Check if the active workflow is in your allowed list
+            if ! echo "$WORKFLOW_NAME" | grep -E -q "^(${MY_WORKFLOWS})$"; then
+              echo "🚨 Unauthorized workflow found: $WORKFLOW_NAME"
+              
+              # 4. Disable the workflow
+              # We use the GitHub API because the workflow file might only exist on the master branch
+              gh workflow disable "$WORKFLOW_NAME"
+              
+              echo "✅ Disabled workflow: $WORKFLOW_NAME"
+              
+              # 5. Notify via Gotify (optional)
+              if [ -n "$MY_GOTIFY_SERVER_DOMAIN" ] && [ -n "$MY_GOTIFY_TOKEN" ]; then
+                curl "https://$MY_GOTIFY_SERVER_DOMAIN/message?token=$MY_GOTIFY_TOKEN" \
+                  -F "title=Unauthorized Workflow Disabled" \
+                  -F "message=The workflow '$WORKFLOW_NAME' was found active and has been disabled."
+              fi
+            else
+              echo "✅ Allowed workflow is active: $WORKFLOW_NAME"
+            fi
+          done
