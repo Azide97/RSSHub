@@ -1,0 +1,80 @@
+name: Build and Push Docker Image
+
+on:
+  schedule:
+    - cron: "0 4 * * *" # Runs every day at 4 AM
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Enable ZRAM
+        # Reduce memory pressure
+        # PERCENT=100 is safe: https://fedoraproject.org/wiki/Changes/Scale_ZRAM_to_full_memory_size
+        run: |
+          sudo apt-get update -yq
+          sudo apt-get install -yq "linux-modules-extra-$(uname -r)" zram-tools
+          echo -e 'ALGO=zstd\nPERCENT=100' | sudo tee -a /etc/default/zramswap
+          sudo systemctl restart zramswap
+          swapon
+
+      - name: Checkout
+        uses: actions/checkout@main
+        with:
+          fetch-depth: 0 # Fetch all history for all branches and tags
+          ref: my-routes
+
+      - name: Merge
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if ! git merge origin/master -X ours --no-edit; then
+            echo "Tree conflicts detected. Resolving 'modify/delete' conflicts..."
+            git status --porcelain | grep '^DU' | awk '{print $2}' | while read -r file; do
+              git rm "$file" -f
+            done
+            git commit --no-edit
+          fi
+
+      - name: Prepare
+        env:
+          ZIP_PASSWORD: ${{ secrets.MY_ZIP_PASSWORD }}
+        run: |
+          7z x ./routes.7z -p"$ZIP_PASSWORD" -aoa > /dev/null 2>&1
+
+      - name: Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Docker Hub Login
+        uses: docker/login-action@v4
+        with:
+          username: ${{ secrets.MY_DOCKER_USERNAME }}
+          password: ${{ secrets.MY_DOCKER_PASSWORD }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ secrets.MY_DOCKER_USERNAME }}/private
+          tags: |
+            type=sha,format=long,enable=true
+            type=raw,value=latest,enable=true
+            type=raw,value={{date 'YYYY-MM-DD'}},enable=true
+          flavor: |
+            latest=false
+            prefix=rsshub-
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          build-args: PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=0
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+          cache-from: type=registry,ref=${{ secrets.MY_DOCKER_USERNAME }}/private:rsshub-cache
+          cache-to: type=registry,ref=${{ secrets.MY_DOCKER_USERNAME }}/private:rsshub-cache,mode=max,compression=zstd
+          outputs: type=image,compression=zstd,force-compression=true,name-canonical=true,push=true
