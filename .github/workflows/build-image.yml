@@ -2,12 +2,13 @@ name: Build and Push Docker Image
 
 on:
   schedule:
-    - cron: "0 4 * * *" # Runs every day at 4 AM
+    - cron: "47 19 * * *" # Runs every day at 03:47 UTC+8
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - name: Enable ZRAM
